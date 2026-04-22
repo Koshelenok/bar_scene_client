@@ -1,100 +1,53 @@
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import "./styles.css";
-import { Canvas, Vector3 } from "@react-three/fiber";
-import { OrbitControls, Fisheye } from "@react-three/drei";
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls } from "@react-three/drei";
 import SceneV2 from "./SceneV2";
 import Character from "./Character";
 import Lamp from "./Lamp";
 import * as signalR from '@microsoft/signalr';
 import * as THREE from "three";
-import Chat from "./Chat";
+import { useSignalR } from "./useSignalR";
 
 const myId = String(Math.floor(Math.random() * 100000));
 
 export default function App() {
-  const [characters, setCharacters] = useState<{position: Vector3, id: string}[]>([]);
-  const [,forceUpdate] = useState<number>(0);
+  const [characters, setCharacters] = useState<{ position: [number, number, number]; id: string }[]>([]);
+  const [characterPosition, setCharacterPosition] = useState<[number, number, number]>([0.7, 1.8 * 1.5, 0.4]);
+  const [obstacles, setObstacles] = useState<THREE.Mesh[]>([]);
 
-  const [connection, setConnection] = useState(null);
-  const [chatacterPosition, setChatacterPosition] = useState<Vector3>([
-    0.7,
-    1.8 * 1.5,
-    0.4,
-  ]);
-  
-  const setChatacterPositionAndSend = async (vector: Vector3) => {
-    setChatacterPosition(vector);
-    // @ts-ignore
-    if (connection?.state === signalR.HubConnectionState.Connected) {
-      // @ts-ignore
+  const connection = useSignalR();
+
+  const setCharacterPositionAndSend = async (position: [number, number, number]) => {
+    setCharacterPosition(position);
+    if (connection && connection.state === signalR.HubConnectionState.Connected) {
       try {
-        
-        // @ts-ignore
-        await connection.invoke('SendMessage', myId, JSON.stringify(vector));
+        await connection.invoke('SendMessage', myId, JSON.stringify(position));
       } catch (e) {
         console.error(e);
       }
     }
   };
-  const [obstacles, setObstacles] = useState<THREE.Mesh[]>([]);
 
-  const directionaLightRef = useRef<THREE.DirectionalLight>(null);
+  const onMessageReceive = useCallback((user: string, message: string) => {
+    if (user === myId) return;
+    setCharacters(prev =>
+      prev.some(item => item.id === user)
+        ? prev.map(item => item.id === user ? { ...item, position: JSON.parse(message) } : item)
+        : [...prev, { id: user, position: JSON.parse(message) }]
+    );
+  }, []);
 
-    // @ts-ignore
-    const onMessageReceive =  useCallback((user, message) => {
-      // @ts-ignore
-      if (user !== myId) {
-        console.log('ReceiveMessage', {user, message});
-        setCharacters((prev) => {
-          const find = prev.find(item => item.id === user);
-          if (find) {
-            find.position = JSON.parse(message) as Vector3;
-          } else {
-            prev.push({id: user, position: JSON.parse(message) as Vector3});
-          }
-          return prev;
-        })
-        forceUpdate(prev => ++prev)
-      }
+  useEffect(() => {
+    if (!connection) return;
+    connection.on('ReceiveMessage', onMessageReceive);
+    return () => connection.off('ReceiveMessage', onMessageReceive);
+  }, [connection, onMessageReceive]);
 
-    }, [characters]);
-  
-    // Подключение к серверу
-    useEffect(() => {
-      const newConnection = new signalR.HubConnectionBuilder()
-        .withUrl('ws://localhost:5201/chatHub', { 
-          skipNegotiation: true,
-          transport: signalR.HttpTransportType.WebSockets
-        })
-        .withAutomaticReconnect()
-        .build();
-      // @ts-ignore
-      setConnection(newConnection);
-    }, []);
-  
-    useEffect(() => {
-      if (connection) {
-        // @ts-ignore
-        connection.start()
-          .then(() => {
-            console.log('Connected!');
-            
-            // @ts-ignore
-            connection.on('ReceiveMessage', onMessageReceive);
-          })
-          // @ts-ignore
-          .catch(e => console.log('Connection failed: ', e));
-      }
-    }, [connection]);
-    
-  // return <div>
-  //   <Chat /> 
-  // </div>;
   return (
     <Canvas shadows gl={{ antialias: false }}>
       <hemisphereLight intensity={1} color="#0e084d" groundColor="#301d1b" />
       <directionalLight
-        ref={directionaLightRef}
         castShadow
         color="#cfa315"
         intensity={5}
@@ -108,26 +61,14 @@ export default function App() {
         shadow-camera-top={10}
         shadow-camera-bottom={-10}
       />
-      <primitive
-        object={directionaLightRef.current?.target || new THREE.Object3D()}
-        position={[0, 0, 0]}
-      />
       <Lamp position={[3, 5.0497, 0.7]} />
       <Lamp position={[-2.35, 5.0497, 0.7]} />
-
       <ambientLight intensity={0.2} />
-      {/* <Scene
-        setChatacterPosition={setChatacterPosition}
-        setObstacles={setObstacles}
-      /> */}
-      <SceneV2
-        setChatacterPosition={setChatacterPositionAndSend}
-        setObstacles={setObstacles}
-      />
-      <Character position={chatacterPosition} obstacles={obstacles} />
-      {
-        characters.map(item => <Character position={item.position} key={item.id}  obstacles={obstacles} />)
-      }
+      <SceneV2 setCharacterPosition={setCharacterPositionAndSend} setObstacles={setObstacles} />
+      <Character position={characterPosition} obstacles={obstacles} />
+      {characters.map(item => (
+        <Character position={item.position} key={item.id} obstacles={obstacles} />
+      ))}
       <OrbitControls enableZoom={true} />
     </Canvas>
   );

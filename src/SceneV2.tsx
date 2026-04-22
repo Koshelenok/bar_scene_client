@@ -1,67 +1,56 @@
 import * as THREE from "three";
 import { useGLTF } from "@react-three/drei";
 import { useEffect, useRef } from "react";
-import { Vector3 } from "@react-three/fiber";
+import { ThreeEvent } from "@react-three/fiber";
 
-const SceneV2 = ({ ...props }) => {
-  const wallRef = useRef<THREE.Mesh>(null);
-  const { setChatacterPosition, setObstacles } = props;
-  // @ts-ignore
-  const { nodes, materials } = useGLTF("/scene_to_glb_16.glb");
-
-  useEffect(() => {
-    console.log("Scene nodes =", nodes);
-  }, []);
-
-  // @ts-ignore
-  const handleGroundClick = (event) => {
-    event.stopPropagation();
-    const worldPoint = event.point;
-    console.log({ x: worldPoint.x, z: worldPoint.z });
-    setChatacterPosition([worldPoint.x, (1.8 * 1.5) / 2, worldPoint.z]);
+type GLTFResult = {
+  nodes: {
+    collision: THREE.Mesh;
+    furniture: THREE.Mesh;
+    lamps: THREE.Mesh;
+    wall: THREE.Mesh;
+    floor: THREE.Mesh;
   };
+};
+
+type SceneV2Props = {
+  setCharacterPosition: (position: [number, number, number]) => void;
+  setObstacles: (meshes: THREE.Mesh[]) => void;
+};
+
+const CHARACTER_Y = (1.8 * 1.5) / 2;
+
+const SceneV2 = ({ setCharacterPosition, setObstacles }: SceneV2Props) => {
+  const wallRef = useRef<THREE.Mesh>(null);
+  const { nodes } = useGLTF("/scene_to_glb_16.glb") as unknown as GLTFResult;
 
   useEffect(() => {
     if (wallRef.current) {
       setObstacles([wallRef.current]);
     }
   }, []);
-  // return null;
+
+  const handleGroundClick = (event: ThreeEvent<MouseEvent>) => {
+    event.stopPropagation();
+    const { x, z } = event.point;
+    setCharacterPosition([x, CHARACTER_Y, z]);
+  };
+
   return (
-    <group {...props} dispose={null}>
-      <mesh
-        ref={wallRef}
-        geometry={nodes.collision.geometry}
-        position={[0, 0, 0]}
-      >
+    <group dispose={null}>
+      <mesh ref={wallRef} geometry={nodes.collision.geometry}>
         <meshStandardMaterial transparent opacity={0} />
       </mesh>
-      <mesh
-        castShadow
-        receiveShadow
-        geometry={nodes.furniture.geometry}
-        position={[0, 0, 0]}
-      >
+      <mesh castShadow receiveShadow geometry={nodes.furniture.geometry}>
         <meshStandardMaterial color="#134513" />
       </mesh>
-      <mesh receiveShadow geometry={nodes.lamps.geometry} position={[0, 0, 0]}>
+      <mesh receiveShadow geometry={nodes.lamps.geometry}>
         <meshStandardMaterial color="#1307b8" />
       </mesh>
-      <mesh
-        castShadow
-        receiveShadow
-        geometry={nodes.wall.geometry}
-        position={[0, 0, 0]}
-      >
+      <mesh castShadow receiveShadow geometry={nodes.wall.geometry}>
         <meshStandardMaterial color="#451313" />
       </mesh>
-      <mesh
-        castShadow
-        receiveShadow
-        geometry={nodes.floor.geometry}
-        position={[0, 0, 0]}
-        onClick={handleGroundClick}
-      >
+      <mesh castShadow receiveShadow geometry={nodes.floor.geometry} onClick={handleGroundClick}>
         <meshStandardMaterial color="#131345" />
       </mesh>
     </group>

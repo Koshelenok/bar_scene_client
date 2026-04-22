@@ -1,70 +1,43 @@
-import React, { useState, useEffect } from 'react';
-import * as signalR from '@microsoft/signalr';
+import { useState, useEffect, useCallback } from 'react';
+import { useSignalR } from './useSignalR';
+
+type Message = { user: string; message: string };
+
+const chatUserId = `ReactUser #${Math.floor(Math.random() * 100000)}`;
 
 function Chat() {
-  const [connection, setConnection] = useState(null);
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
+  const connection = useSignalR();
 
-  // Подключение к серверу
-  useEffect(() => {
-    const newConnection = new signalR.HubConnectionBuilder()
-      .withUrl('ws://localhost:5201/chatHub', { 
-        skipNegotiation: true,
-        transport: signalR.HttpTransportType.WebSockets
-      })
-      .withAutomaticReconnect()
-      .build();
-    // @ts-ignore
-    setConnection(newConnection);
+  const onMessage = useCallback((user: string, message: string) => {
+    setMessages(prev => [...prev, { user, message }]);
   }, []);
 
-  // Обработка сообщений
   useEffect(() => {
-    if (connection) {
-      // @ts-ignore
-      connection.start()
-        .then(() => {
-          console.log('Connected!');
-          
-          // Подписываемся на ReceiveMessage
-          // @ts-ignore
-          connection.on('ReceiveMessage', (user, message) => {
-            // @ts-ignore
-            setMessages(prev => [...prev, { user, message }]);
-          });
-        })
-        // @ts-ignore
-        .catch(e => console.log('Connection failed: ', e));
-    }
-  }, [connection]);
+    if (!connection) return;
+    connection.on('ReceiveMessage', onMessage);
+    return () => connection.off('ReceiveMessage', onMessage);
+  }, [connection, onMessage]);
 
   const sendMessage = async () => {
-    if (connection && input) {
-      try {
-        // @ts-ignore
-        await connection.invoke('SendMessage', 'ReactUser #' + (Math.floor(Math.random() * 100000)), input);
-        setInput('');
-      } catch (e) {
-        console.error(e);
-      }
+    if (!connection || !input) return;
+    try {
+      await connection.invoke('SendMessage', chatUserId, input);
+      setInput('');
+    } catch (e) {
+      console.error(e);
     }
   };
 
   return (
     <div>
       <h2>WebSocket Chat</h2>
-      <input 
-        value={input} 
-        onChange={e => setInput(e.target.value)} 
-        placeholder="Type message..."
-      />
+      <input value={input} onChange={e => setInput(e.target.value)} placeholder="Type message..." />
       <button onClick={sendMessage}>Send</button>
-      
       <ul>
         {messages.map((msg, idx) => (
-            // @ts-ignore
-            <li key={idx}><b>{msg.user}:</b> {msg.message}</li>
+          <li key={`${msg.user}-${idx}`}><b>{msg.user}:</b> {msg.message}</li>
         ))}
       </ul>
     </div>

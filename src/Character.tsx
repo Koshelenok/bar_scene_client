@@ -1,152 +1,70 @@
-import { useEffect, useRef, useState } from "react";
-import { useFrame, Vector3 } from "@react-three/fiber";
+import { useRef } from "react";
+import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
-const Character = (props: { position: Vector3; obstacles: THREE.Mesh[] }) => {
-  const { position, obstacles } = props;
+const SPEED = 5;
+const AVOIDANCE_DISTANCE = 1.5;
 
-  // @ts-ignore
-  const meshRef = useRef<IntrinsicElements.mesh>();
+type CharacterProps = {
+  position: [number, number, number];
+  obstacles: THREE.Mesh[];
+};
 
-  // @ts-ignore
-  const targetPosition = new THREE.Vector3(...position);
+const Character = ({ position, obstacles }: CharacterProps) => {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const initialPosition = useRef<[number, number, number]>([-1, (1.8 * 1.5) / 2, 4]);
 
-  const [currentPosision, setCurrentPosision] = useState<Vector3>([
-    -1,
-    (1.8 * 1.5) / 2,
-    4,
-  ]);
+  const targetVec = useRef(new THREE.Vector3());
+  const direction = useRef(new THREE.Vector3());
+  const dir1 = useRef(new THREE.Vector3());
+  const dir2 = useRef(new THREE.Vector3());
+  const axisY = useRef(new THREE.Vector3(0, 1, 0));
+  const rc0 = useRef(new THREE.Raycaster());
+  const rc1 = useRef(new THREE.Raycaster());
+  const rc2 = useRef(new THREE.Raycaster());
 
-  useEffect(() => {}, []);
+  useFrame((_, delta) => {
+    if (!meshRef.current) return;
 
-  useFrame((state, delta) => {
-    if (meshRef.current) {
-      // OPTION 1
-      // let { x: cX, y: cY, z: cZ } = meshRef.current.position;
-      // const [nX, nY, nZ] = position.map((item) => {
-      //   return Math.floor(item.toFixed(1));
-      // });
-      // if (nX !== Math.floor(cX.toFixed(1))) {
-      //   meshRef.current.position.x += nX > cX ? 0.1 : -0.1;
-      // }
-      // if (nZ !== Math.floor(cZ.toFixed(1))) {
-      //   meshRef.current.position.z += nZ > cZ ? 0.1 : -0.1;
-      // }
+    const char = meshRef.current;
+    const currentPos = char.position;
 
-      // OPTION 2
-      // const speed = 5;
-      // const currentPosition = meshRef.current.position;
-      // const targetVec = new THREE.Vector3(...targetPosition);
-      // const distance = currentPosition.distanceTo(targetVec);
-      // if (distance < 0.05) {
-      //   currentPosition.copy(targetVec);
-      //   return;
-      // }
-      // const direction = new THREE.Vector3()
-      // .subVectors(targetVec, currentPosition)
-      // .normalize();
-      // const moveDistance = Math.min(speed * delta, distance);
-      // if (moveDistance > 0.001) {
-      //   const angle = Math.atan2(direction.x, direction.z);
-      //   meshRef.current.rotation.y = angle;
-      // }
-      // currentPosition.add(direction.multiplyScalar(moveDistance));
+    targetVec.current.set(position[0], position[1], position[2]);
+    const distance = currentPos.distanceTo(targetVec.current);
 
-      // OPTION 3
-      // meshRef.current.position.lerp(targetPosition, 0.1);
-
-      // OPTION 4
-      // const speed = 5;
-      // const avoidanceDistance = 3.5;
-      // const char = meshRef.current;
-      // const targetVec = new THREE.Vector3(...position);
-      // const direction = new THREE.Vector3()
-      //   .subVectors(targetVec, char.position)
-      //   .normalize();
-
-      // const raycaster = new THREE.Raycaster(
-      //   char.position,
-      //   direction,
-      //   0,
-      //   avoidanceDistance
-      // );
-      // const intersects = raycaster.intersectObjects(obstacles);
-      // if (intersects.length > 0) {
-      //   const avoidDirection = new THREE.Vector3()
-      //     .crossVectors(direction, new THREE.Vector3(0, 1, 0))
-      //     .normalize();
-
-      //   char.position.add(avoidDirection.multiplyScalar(speed * delta * 0.5));
-      // } else {
-      //   const distance = char.position.distanceTo(targetVec);
-      //   if (distance > 0.05) {
-      //     const moveVec = direction.clone().multiplyScalar(Math.min(speed * delta, distance));
-      //     char.position.add(moveVec);
-
-      //     const angle = Math.atan2(moveVec.x, moveVec.z);
-      //     char.rotation.y = angle;
-      //   }
-      // }
-
-      // OPTION 5
-      const char = meshRef.current;
-      const currentPos = char.position;
-      // @ts-ignore
-      const targetVec = new THREE.Vector3(...position);
-      const speed = 5;
-      const direction = new THREE.Vector3()
-        .subVectors(targetVec, currentPos)
-        .normalize();
-      const distance = currentPos.distanceTo(targetVec);
-
-      if (distance < 0.05) {
-        currentPos.copy(targetVec);
-        return;
-      }
-
-      const avoidanceDistance = 1.5;
-
-      const directions = [
-        direction.clone(),
-        direction
-          .clone()
-          .applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 5),
-        direction
-          .clone()
-          .applyAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 5),
-      ];
-
-      const raycasters = directions.map((dir) => {
-        return new THREE.Raycaster(currentPos, dir, 0, avoidanceDistance);
-      });
-
-      const hasObstacle = raycasters.map(
-        (rc) => rc.intersectObjects(obstacles).length > 0
-      );
-      let chosenDir = direction;
-
-      if (hasObstacle[0]) {
-        if (!hasObstacle[2]) {
-          chosenDir = directions[2];
-        } else if (!hasObstacle[1]) {
-          chosenDir = directions[1];
-        } else {
-          return;
-        }
-      }
-
-      const moveVec = chosenDir.multiplyScalar(
-        Math.min(speed * delta, distance)
-      );
-      char.position.add(moveVec);
-
-      const angle = Math.atan2(chosenDir.x, chosenDir.z);
-      char.rotation.y = angle;
+    if (distance < 0.05) {
+      currentPos.copy(targetVec.current);
+      return;
     }
+
+    direction.current.subVectors(targetVec.current, currentPos).normalize();
+    dir1.current.copy(direction.current).applyAxisAngle(axisY.current, Math.PI / 5);
+    dir2.current.copy(direction.current).applyAxisAngle(axisY.current, -Math.PI / 5);
+
+    rc0.current.set(currentPos, direction.current);
+    rc0.current.far = AVOIDANCE_DISTANCE;
+    rc1.current.set(currentPos, dir1.current);
+    rc1.current.far = AVOIDANCE_DISTANCE;
+    rc2.current.set(currentPos, dir2.current);
+    rc2.current.far = AVOIDANCE_DISTANCE;
+
+    const blocked0 = rc0.current.intersectObjects(obstacles).length > 0;
+    const blocked1 = rc1.current.intersectObjects(obstacles).length > 0;
+    const blocked2 = rc2.current.intersectObjects(obstacles).length > 0;
+
+    let chosenDir = direction.current;
+    if (blocked0) {
+      if (!blocked2) chosenDir = dir2.current;
+      else if (!blocked1) chosenDir = dir1.current;
+      else return;
+    }
+
+    char.position.addScaledVector(chosenDir, Math.min(SPEED * delta, distance));
+    char.rotation.y = Math.atan2(chosenDir.x, chosenDir.z);
   });
 
   return (
-    <mesh castShadow receiveShadow ref={meshRef} position={currentPosision}>
+    <mesh castShadow receiveShadow ref={meshRef} position={initialPosition.current}>
       <boxGeometry args={[0.7 * 1.5, 1.8 * 1.5, 0.4 * 1.5]} />
       <meshStandardMaterial color="#f3f302" />
     </mesh>

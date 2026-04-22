@@ -1,18 +1,16 @@
-import { Vector3 } from "@react-three/fiber";
 import { useRef } from "react";
 import * as THREE from "three";
 
 type LampProps = {
-  position: Vector3;
+  position: [number, number, number];
 };
-const Lamp = (props: LampProps) => {
-  const spotLightRef = useRef<THREE.SpotLight>(null);
-  const { position } = props;
+
+const Lamp = ({ position }: LampProps) => {
+  const targetRef = useRef(new THREE.Object3D());
 
   return (
     <>
       <spotLight
-        ref={spotLightRef}
         position={position}
         angle={Math.PI / 4}
         penumbra={0.2}
@@ -21,13 +19,9 @@ const Lamp = (props: LampProps) => {
         distance={15}
         castShadow
         shadow-mapSize={[2048, 2048]}
+        target={targetRef.current}
       />
-
-      <primitive
-        object={spotLightRef.current?.target || new THREE.Object3D()}
-      // @ts-ignore
-        position={[position[0], 0, position[2]]}
-      />
+      <primitive object={targetRef.current} position={[position[0], 0, position[2]]} />
     </>
   );
 };
