@@ -3,8 +3,14 @@ import * as signalR from '@microsoft/signalr';
 
 const HUB_URL = process.env.REACT_APP_HUB_URL ?? 'ws://localhost:5201/chatHub';
 
-export function useSignalR(): signalR.HubConnection | null {
+type SignalRState = {
+  connection: signalR.HubConnection | null;
+  isConnected: boolean;
+};
+
+export function useSignalR(): SignalRState {
   const [connection, setConnection] = useState<signalR.HubConnection | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
     const conn = new signalR.HubConnectionBuilder()
@@ -14,14 +20,28 @@ export function useSignalR(): signalR.HubConnection | null {
       })
       .withAutomaticReconnect()
       .build();
+
+    conn.onreconnecting(() => setIsConnected(false));
+    conn.onreconnected(() => setIsConnected(true));
+    conn.onclose(() => setIsConnected(false));
+
     setConnection(conn);
   }, []);
 
   useEffect(() => {
     if (!connection) return;
-    connection.start().catch(e => console.error('Connection failed:', e));
-    return () => { connection.stop(); };
+    let cancelled = false;
+
+    connection.start()
+      .then(() => { if (!cancelled) setIsConnected(true); })
+      .catch(e => console.error('Connection failed:', e));
+
+    return () => {
+      cancelled = true;
+      setIsConnected(false);
+      connection.stop();
+    };
   }, [connection]);
 
-  return connection;
+  return { connection, isConnected };
 }

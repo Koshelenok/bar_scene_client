@@ -8,7 +8,7 @@ const chatUserId = `ReactUser #${Math.floor(Math.random() * 100000)}`;
 function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const connection = useSignalR();
+  const { connection } = useSignalR();
 
   const onMessage = useCallback((user: string, message: string) => {
     setMessages(prev => [...prev, { user, message }]);

@@ -8,9 +8,10 @@ const AVOIDANCE_DISTANCE = 1.5;
 type CharacterProps = {
   position: [number, number, number];
   obstacles: THREE.Mesh[];
+  color?: string;
 };
 
-const Character = ({ position, obstacles }: CharacterProps) => {
+const Character = ({ position, obstacles, color = "#f3f302" }: CharacterProps) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const initialPosition = useRef<[number, number, number]>([-1, (1.8 * 1.5) / 2, 4]);
 
@@ -66,7 +67,7 @@ const Character = ({ position, obstacles }: CharacterProps) => {
   return (
     <mesh castShadow receiveShadow ref={meshRef} position={initialPosition.current}>
       <boxGeometry args={[0.7 * 1.5, 1.8 * 1.5, 0.4 * 1.5]} />
-      <meshStandardMaterial color="#f3f302" />
+      <meshStandardMaterial color={color} />
     </mesh>
   );
 };
