@@ -54,3 +54,28 @@ export const resolveRoomId = (): string => {
   window.history.replaceState(window.history.state, "", url.toString());
   return roomId;
 };
+
+const CLIENT_ID_PREFIX = "bar_scene:client:";
+
+/**
+ * Id of this tab in the given room. Kept in sessionStorage so a page reload
+ * reuses the same id (otherwise peers would keep the old id as a ghost until
+ * its TTL expires), while a new tab gets its own id and stays a separate user.
+ */
+export const resolveClientId = (roomId: string): string => {
+  const key = `${CLIENT_ID_PREFIX}${roomId}`;
+
+  try {
+    const existing = window.sessionStorage.getItem(key);
+    if (existing && UUID_RE.test(existing)) {
+      return existing.toLowerCase();
+    }
+
+    const clientId = createUuid();
+    window.sessionStorage.setItem(key, clientId);
+    return clientId;
+  } catch {
+    // sessionStorage can be unavailable; fall back to an in-memory id.
+    return createUuid();
+  }
+};
