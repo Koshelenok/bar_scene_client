@@ -25,3 +25,48 @@ canvas {
   touch-action: none;
   animation: fade-in 2s ease 0.3s forwards;
 }
+
+.voice-toggle {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 10;
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  background: rgba(20, 20, 35, 0.75);
+  color: #f4f4f8;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.voice-toggle:hover {
+  background: rgba(40, 40, 65, 0.85);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.voice-toggle--on {
+  background: rgba(45, 140, 80, 0.85);
+  border-color: rgba(120, 230, 160, 0.7);
+}
+
+.voice-toggle--on:hover {
+  background: rgba(55, 165, 95, 0.9);
+}
+
+.voice-error {
+  position: fixed;
+  top: 62px;
+  left: 16px;
+  z-index: 10;
+  max-width: 320px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(150, 40, 40, 0.9);
+  color: #fff;
+  font-size: 13px;
+}

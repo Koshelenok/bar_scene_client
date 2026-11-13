@@ -11,8 +11,9 @@ import { useSignalR } from "./useSignalR";
 import { resolveClientId, resolveRoomId } from "./room";
 import { characterColor } from "./colors";
 import { loadRoomPosition, pruneStaleRooms, saveRoomPosition } from "./roomStorage";
-import { PROTOCOL_VERSION, parseRoomMessage } from "./network";
-import type { Position, RoomMessageKind } from "./network";
+import { isSignalMessage, parseRoomMessage, PROTOCOL_VERSION } from "./network";
+import type { OutgoingSignal, Position, PresenceKind, RoomMessage } from "./network";
+import { useVoiceChat, volumeForDistance } from "./useVoiceChat";
 
 const CHARACTER_Y = (1.8 * 1.5) / 2;
 const SPAWN_POSITION: Position = [0.7, CHARACTER_Y, 0.4];
@@ -30,6 +31,8 @@ const PRESENCE_RETRY_MS = 2_000;
 const PRESENCE_MAX_ATTEMPTS = 3;
 // Saved room positions are cleaned up both on start and while the page is open.
 const PRUNE_INTERVAL_MS = 10 * 60 * 1000;
+// How often voice volume is recalculated from the characters' live positions.
+const VOLUME_INTERVAL_MS = 100;
 
 type Peer = {
   position: Position;
@@ -51,8 +54,38 @@ export default function App() {
   // Mirrors of the state that message handlers need without re-subscribing.
   const peersRef = useRef<Record<string, Peer>>({});
   const characterPositionRef = useRef<Position>(SPAWN_POSITION);
+  // Live (animated) positions of all characters, updated from useFrame at ~10 Hz.
+  const livePositionsRef = useRef<Record<string, Position>>({});
 
   const { connection, isConnected } = useSignalR();
+
+  const publish = useCallback(
+    async (message: RoomMessage) => {
+      if (!connection || connection.state !== signalR.HubConnectionState.Connected) return;
+      try {
+        await connection.invoke('SendMessage', myId, JSON.stringify(message));
+      } catch (e) {
+        console.error(e);
+      }
+    },
+    [connection, myId]
+  );
+
+  const send = useCallback(
+    (kind: PresenceKind, position: Position) => {
+      void publish({ v: PROTOCOL_VERSION, room: roomId, kind, position });
+    },
+    [publish, roomId]
+  );
+
+  const sendSignal = useCallback(
+    (signal: OutgoingSignal) => {
+      void publish({ v: PROTOCOL_VERSION, room: roomId, ...signal });
+    },
+    [publish, roomId]
+  );
+
+  const voice = useVoiceChat({ myId, sendSignal });
 
   const upsertPeer = useCallback((id: string, position: Position) => {
     const next = { ...peersRef.current, [id]: { position, lastSeen: Date.now() } };
@@ -60,25 +93,16 @@ export default function App() {
     setPeers(next);
   }, []);
 
-  const send = useCallback(
-    async (kind: RoomMessageKind, position: Position) => {
-      if (!connection || connection.state !== signalR.HubConnectionState.Connected) return;
-      try {
-        const payload = JSON.stringify({ v: PROTOCOL_VERSION, room: roomId, kind, position });
-        await connection.invoke('SendMessage', myId, payload);
-      } catch (e) {
-        console.error(e);
-      }
-    },
-    [connection, myId, roomId]
-  );
+  const handleCharacterMove = useCallback((id: string, position: Position) => {
+    livePositionsRef.current[id] = position;
+  }, []);
 
   const setCharacterPositionAndSend = useCallback(
     (position: Position) => {
       characterPositionRef.current = position;
       setCharacterPosition(position);
       void saveRoomPosition(roomId, position);
-      void send('position', position);
+      send('position', position);
     },
     [roomId, send]
   );
@@ -116,14 +140,24 @@ export default function App() {
       const message = parseRoomMessage(raw);
       if (!message || message.room !== roomId) return;
 
+      if (isSignalMessage(message)) {
+        voice.handleSignal(user, message);
+        return;
+      }
+
       upsertPeer(user, message.position);
 
-      // Somebody just entered our room: answer with our own location.
-      if (message.kind === 'hello') {
-        void send('presence', characterPositionRef.current);
+      // A `join` means the peer (re)entered the room, so any old WebRTC
+      // connection to it is dead; other kinds only announce presence.
+      if (message.kind === 'join') voice.handleJoin(user);
+      else voice.handlePeerSeen(user);
+
+      // Somebody just entered or polled the room: answer with our location.
+      if (message.kind === 'join' || message.kind === 'hello') {
+        send('presence', characterPositionRef.current);
       }
     },
-    [myId, roomId, send, upsertPeer]
+    [myId, roomId, send, upsertPeer, voice]
   );
 
   useEffect(() => {
@@ -141,18 +175,18 @@ export default function App() {
     let timer = 0;
     let attempt = 0;
 
-    const poll = () => {
+    const poll = (initial: boolean) => {
       if (cancelled) return;
-      void send('hello', characterPositionRef.current);
+      send(initial ? 'join' : 'hello', characterPositionRef.current);
       attempt += 1;
 
       const alone = Object.keys(peersRef.current).length === 0;
       if (alone && attempt < PRESENCE_MAX_ATTEMPTS) {
-        timer = window.setTimeout(poll, PRESENCE_RETRY_MS);
+        timer = window.setTimeout(() => poll(false), PRESENCE_RETRY_MS);
       }
     };
 
-    poll();
+    poll(true);
 
     return () => {
       cancelled = true;
@@ -166,7 +200,7 @@ export default function App() {
     if (!connection || !isConnected) return;
 
     const poll = window.setInterval(() => {
-      void send('hello', characterPositionRef.current);
+      send('hello', characterPositionRef.current);
     }, PRESENCE_POLL_MS);
 
     const prune = window.setInterval(() => {
@@ -178,53 +212,92 @@ export default function App() {
       if (alive.length === Object.keys(peersRef.current).length) return;
 
       const next = Object.fromEntries(alive);
+      const removed = Object.keys(peersRef.current).filter(id => !(id in next));
+
       peersRef.current = next;
       setPeers(next);
+      removed.forEach(id => {
+        voice.removePeer(id);
+        delete livePositionsRef.current[id];
+      });
     }, PEER_TTL_MS / 2);
 
     return () => {
       window.clearInterval(poll);
       window.clearInterval(prune);
     };
-  }, [connection, isConnected, send]);
+  }, [connection, isConnected, send, voice]);
+
+  // Attenuate each peer's voice by the distance between the animated characters.
+  useEffect(() => {
+    const applyVolumes = () => {
+      const self = livePositionsRef.current[myId];
+      if (!self) return;
+
+      for (const [id, position] of Object.entries(livePositionsRef.current)) {
+        if (id === myId) continue;
+        voice.setPeerVolume(id, volumeForDistance(self, position));
+      }
+    };
+
+    const timer = window.setInterval(applyVolumes, VOLUME_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [myId, voice]);
 
   return (
-    <Canvas
-      shadows
-      gl={{ antialias: false }}
-      camera={{ position: [16.6, 15.5, 15.1], fov: 50, near: 0.1, far: 100 }}
-    >
-      <hemisphereLight intensity={1} color="#0e084d" groundColor="#301d1b" />
-      <directionalLight
-        castShadow
-        color="#cfa315"
-        intensity={5}
-        position={[10, 10, 10]}
-        shadow-mapSize={[1024, 1024]}
-        shadow-bias={-0.0001}
-        shadow-camera-near={1}
-        shadow-camera-far={50}
-        shadow-camera-left={-10}
-        shadow-camera-right={10}
-        shadow-camera-top={10}
-        shadow-camera-bottom={-10}
-      />
-      <Lamp position={[3, 5.0497, 0.7]} />
-      <Lamp position={[-2.35, 5.0497, 0.7]} />
-      <ambientLight intensity={0.2} />
-      <SceneV2 setCharacterPosition={setCharacterPositionAndSend} setObstacles={setObstacles} />
-      {positionReady && (
-        <Character position={characterPosition} obstacles={obstacles} color={myColor} />
-      )}
-      {Object.entries(peers).map(([id, peer]) => (
-        <Character
-          position={peer.position}
-          key={id}
-          obstacles={obstacles}
-          color={characterColor(id)}
+    <>
+      <button
+        className={`voice-toggle${voice.enabled ? ' voice-toggle--on' : ''}`}
+        onClick={voice.toggle}
+        title={voice.error ?? 'Передать голос участникам комнаты'}
+      >
+        {voice.enabled ? 'Выключить микрофон' : 'Включить микрофон'}
+      </button>
+      {voice.error && <div className="voice-error">{voice.error}</div>}
+
+      <Canvas
+        shadows
+        gl={{ antialias: false }}
+        camera={{ position: [16.6, 15.5, 15.1], fov: 50, near: 0.1, far: 100 }}
+      >
+        <hemisphereLight intensity={1} color="#0e084d" groundColor="#301d1b" />
+        <directionalLight
+          castShadow
+          color="#cfa315"
+          intensity={5}
+          position={[10, 10, 10]}
+          shadow-mapSize={[1024, 1024]}
+          shadow-bias={-0.0001}
+          shadow-camera-near={1}
+          shadow-camera-far={50}
+          shadow-camera-left={-10}
+          shadow-camera-right={10}
+          shadow-camera-top={10}
+          shadow-camera-bottom={-10}
         />
-      ))}
-      <OrbitControls target={[2.7, 1.6, 1.3]} enableZoom={true} />
-    </Canvas>
+        <Lamp position={[3, 5.0497, 0.7]} />
+        <Lamp position={[-2.35, 5.0497, 0.7]} />
+        <ambientLight intensity={0.2} />
+        <SceneV2 setCharacterPosition={setCharacterPositionAndSend} setObstacles={setObstacles} />
+        {positionReady && (
+          <Character
+            position={characterPosition}
+            obstacles={obstacles}
+            color={myColor}
+            onMove={position => handleCharacterMove(myId, position)}
+          />
+        )}
+        {Object.entries(peers).map(([id, peer]) => (
+          <Character
+            position={peer.position}
+            key={id}
+            obstacles={obstacles}
+            color={characterColor(id)}
+            onMove={position => handleCharacterMove(id, position)}
+          />
+        ))}
+        <OrbitControls target={[2.7, 1.6, 1.3]} enableZoom={true} />
+      </Canvas>
+    </>
   );
 }

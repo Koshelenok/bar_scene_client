@@ -9,13 +9,17 @@ type CharacterProps = {
   position: [number, number, number];
   obstacles: THREE.Mesh[];
   color?: string;
+  onMove?: (position: [number, number, number]) => void;
 };
 
-const Character = ({ position, obstacles, color = "#f3f302" }: CharacterProps) => {
+const REPORT_INTERVAL = 0.1;
+
+const Character = ({ position, obstacles, color = "#f3f302", onMove }: CharacterProps) => {
   const meshRef = useRef<THREE.Mesh>(null);
   // Start where the character actually is, not at a shared spawn point,
   // otherwise a joining client sees every peer walk in from the same spot.
   const initialPosition = useRef<[number, number, number]>(position);
+  const reportAccumulator = useRef(0);
 
   const targetVec = useRef(new THREE.Vector3());
   const direction = useRef(new THREE.Vector3());
@@ -31,6 +35,13 @@ const Character = ({ position, obstacles, color = "#f3f302" }: CharacterProps) =
 
     const char = meshRef.current;
     const currentPos = char.position;
+
+    // Live position for distance-based voice volume, throttled a bit.
+    reportAccumulator.current += delta;
+    if (reportAccumulator.current >= REPORT_INTERVAL) {
+      reportAccumulator.current = 0;
+      onMove?.([currentPos.x, currentPos.y, currentPos.z]);
+    }
 
     targetVec.current.set(position[0], position[1], position[2]);
     const distance = currentPos.distanceTo(targetVec.current);
