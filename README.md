@@ -1,6 +1,6 @@
 # bar_scene_client
 
-Клиентская часть многопользовательской 3D-сцены бара: React + TypeScript + Three.js, связь с сервером через SignalR.
+Клиентская часть многопользовательской 3D-сцены бара: TypeScript + PixiJS (pixi3d) для рендеринга, React для интерфейса, связь с сервером через SignalR.
 
 Пример работы: [t.me/koshelenok3d/35](https://t.me/koshelenok3d/35)
 

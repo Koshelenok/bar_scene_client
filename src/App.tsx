@@ -1,12 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import "./styles.css";
-import { Canvas } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
-import SceneV2 from "./SceneV2";
-import Character from "./Character";
-import Lamp from "./Lamp";
 import * as signalR from '@microsoft/signalr';
-import * as THREE from "three";
+import PixiScene from "./PixiScene";
 import { useSignalR } from "./useSignalR";
 import { resolveClientId, resolveRoomId } from "./room";
 import { characterColor } from "./colors";
@@ -45,8 +40,11 @@ export default function App() {
   const myColor = useMemo(() => characterColor(myId), [myId]);
 
   const [peers, setPeers] = useState<Record<string, Peer>>({});
+  const peerPositions = useMemo(
+    () => Object.fromEntries(Object.entries(peers).map(([id, peer]) => [id, peer.position])),
+    [peers]
+  );
   const [characterPosition, setCharacterPosition] = useState<Position>(SPAWN_POSITION);
-  const [obstacles, setObstacles] = useState<THREE.Mesh[]>([]);
   // True once IndexedDB has been checked, so the join poll and our character
   // use the restored position instead of the default spawn one.
   const [positionReady, setPositionReady] = useState(false);
@@ -54,7 +52,7 @@ export default function App() {
   // Mirrors of the state that message handlers need without re-subscribing.
   const peersRef = useRef<Record<string, Peer>>({});
   const characterPositionRef = useRef<Position>(SPAWN_POSITION);
-  // Live (animated) positions of all characters, updated from useFrame at ~10 Hz.
+  // Live (animated) positions of all characters, updated by the scene at ~10 Hz.
   const livePositionsRef = useRef<Record<string, Position>>({});
 
   const { connection, isConnected } = useSignalR();
@@ -255,49 +253,15 @@ export default function App() {
       </button>
       {voice.error && <div className="voice-error">{voice.error}</div>}
 
-      <Canvas
-        shadows
-        gl={{ antialias: false }}
-        camera={{ position: [16.6, 15.5, 15.1], fov: 50, near: 0.1, far: 100 }}
-      >
-        <hemisphereLight intensity={1} color="#0e084d" groundColor="#301d1b" />
-        <directionalLight
-          castShadow
-          color="#cfa315"
-          intensity={5}
-          position={[10, 10, 10]}
-          shadow-mapSize={[1024, 1024]}
-          shadow-bias={-0.0001}
-          shadow-camera-near={1}
-          shadow-camera-far={50}
-          shadow-camera-left={-10}
-          shadow-camera-right={10}
-          shadow-camera-top={10}
-          shadow-camera-bottom={-10}
-        />
-        <Lamp position={[3, 5.0497, 0.7]} />
-        <Lamp position={[-2.35, 5.0497, 0.7]} />
-        <ambientLight intensity={0.2} />
-        <SceneV2 setCharacterPosition={setCharacterPositionAndSend} setObstacles={setObstacles} />
-        {positionReady && (
-          <Character
-            position={characterPosition}
-            obstacles={obstacles}
-            color={myColor}
-            onMove={position => handleCharacterMove(myId, position)}
-          />
-        )}
-        {Object.entries(peers).map(([id, peer]) => (
-          <Character
-            position={peer.position}
-            key={id}
-            obstacles={obstacles}
-            color={characterColor(id)}
-            onMove={position => handleCharacterMove(id, position)}
-          />
-        ))}
-        <OrbitControls target={[2.7, 1.6, 1.3]} enableZoom={true} />
-      </Canvas>
+      <PixiScene
+        myId={myId}
+        selfPosition={characterPosition}
+        selfColor={myColor}
+        peers={peerPositions}
+        positionReady={positionReady}
+        onMove={handleCharacterMove}
+        onGroundClick={setCharacterPositionAndSend}
+      />
     </>
   );
 }
